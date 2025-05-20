@@ -112,7 +112,7 @@ with open('model_saveFile/tokenizer.pkl', 'rb') as f:
 dict_path = 'dict-words.txt'
 sw_path = 'sw.txt'
 # ban_words_path = "necessary/tempbanwords.txt"
-category_words = load_category_words_from_csv('clean_distinct.csv')
+category_words = load_category_words_from_csv('Distinct Words.csv')
 preprocessor = MyanmarTextPreprocessor(dict_path, sw_path)
 
 def safe_pad_sequences(texts, tokenizer, maxlen, vocab_limit):

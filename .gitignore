@@ -1,7 +1,7 @@
 venv
 __pycache__
 Dataset_12.5.2025.csv
-clean_distinct.csv
+Distinct Words.csv
 dict-words.txt
 sw.txt
 interPolitics.txt
