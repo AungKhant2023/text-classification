@@ -30,12 +30,7 @@ def predict_label_from_tokens(tokens, category_words):
     print(predicted_label)
     return predicted_label, score_dict
 
-def load_allowed_words(path):
-    with open(path, "r", encoding="utf-8") as f:
-        return set(line.strip() for line in f if line.strip())
-
-
-def temp_def (path,tokens):
+def essential (path,tokens):
     with open(path,'r',encoding="utf-8") as f:
         temp_ban = set()
         for line in f:
@@ -47,7 +42,7 @@ def temp_def (path,tokens):
         
     return filtered_tokens
 
-app = FastAPI()
+
 class TransformerEncoder(layers.Layer):
     def __init__(self, embed_dim, heads, neurons, dropout_rate=0.5,**kwargs):
         super(TransformerEncoder, self).__init__(**kwargs)
@@ -111,18 +106,20 @@ with open('model_saveFile/tokenizer.pkl', 'rb') as f:
 
 dict_path = 'dict-words.txt'
 sw_path = 'sw.txt'
-# ban_words_path = "necessary/tempbanwords.txt"
+ban_words_path = "essential.txt"
 category_words = load_category_words_from_csv('Distinct Words.csv')
 preprocessor = MyanmarTextPreprocessor(dict_path, sw_path)
 
 def safe_pad_sequences(texts, tokenizer, maxlen, vocab_limit):
     sequences = tokenizer.texts_to_sequences(texts)
-    # Clamp token ids to embedding limit
     sequences = [[min(token, vocab_limit - 1) for token in seq] for seq in sequences]
     return pad_sequences(sequences, maxlen=maxlen, padding='post', truncating='post')
 
 class TextInput(BaseModel):
     text: str
+    
+#--------------------------------------------------------------------------
+app = FastAPI()
 @app.post("/predict")
 
 def predict(input: TextInput):
@@ -135,34 +132,30 @@ def predict(input: TextInput):
     pred_index = np.argmax(pred_probs, axis=1)[0]
     inv_map_label = {v: k for k, v in map_label.items()}
     pred_label = inv_map_label[pred_index]
-    model_result = pred_label
+    model_result = pred_label # Predittion from Model 
+    
     # Distinct Words part    
     tokens = preprocessor.preprocessing(input.text).split()
     label, scores = predict_label_from_tokens(tokens, category_words)
-    # temp_ban = temp_def(ban_words_path,tokens)
-    dict_result = label
+    temp_ban = essential(ban_words_path,tokens)
+    dict_result = label # Prediction from Distinct Words
     
+    # Condition for final label
+    if model_result == dict_result:
+        final_label = model_result
+    elif (model_result in ["Political","Gambling","Adult Contents"]) and (dict_result not in ["Political","Gambling","Adult Contents"]):
+        if temp_ban :final_label = model_result
+        else: final_label = dict_result
+    elif (model_result not in ["Political","Gambling","Adult Contents"]) and (dict_result in ["Political","Gambling","Adult Contents"]):
+        if temp_ban : final_label = dict_result
+        else: final_label = model_result    
+    else:
+        final_label = dict_result
+
+    status = "unsafe" if final_label in ["Political","Gambling","Adult Contents"] else "safe"
     return {
         "predicted_label From Disticnt": dict_result,
-        "predicted_label From Model": model_result
+        "predicted_label From Model": model_result,
+        "final_label": final_label,
+        "status": status
     }
-    
-    # if temp_ban :
-    #     status = "unsafe"
-    #     return {
-    #         "predicted_label":"Sensitive words detected !!",
-    #         "status" : status
-    #     }
-    # else:    
-    #     if label in ["Political","Gambling","Adult Contents"]:
-    #         status = "unsafe"
-    #     else:
-    #         status = "safe"
-
-    #     return {
-    #         "predicted_label From Disticnt": label,
-    #         "predicted_label From Model": pred_label,
-    #         "status": status,
-    #         "match_socres": scores,
-    #         "tokens": tokens
-    #     }
