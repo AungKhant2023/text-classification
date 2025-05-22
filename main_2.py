@@ -121,41 +121,51 @@ class TextInput(BaseModel):
 #--------------------------------------------------------------------------
 app = FastAPI()
 @app.post("/predict")
-
 def predict(input: TextInput):
     # Model part
     cleaned = preprocessor.preprocessing(input.text)
     seq = tokenizer.texts_to_sequences([cleaned])  # reuse the saved tokenizer
     seq_pad = safe_pad_sequences([cleaned], tokenizer, maxlen, vocab_limit=40701)
-    # seq_pad =pad_sequences(seq, maxlen=maxlen, padding='post', truncating='post')
     pred_probs = model.predict(seq_pad)
     pred_index = np.argmax(pred_probs, axis=1)[0]
     inv_map_label = {v: k for k, v in map_label.items()}
-    pred_label = inv_map_label[pred_index]
-    model_result = pred_label # Predittion from Model 
-    
+    model_result = inv_map_label[pred_index]  # Prediction from Model
+
     # Distinct Words part    
     tokens = preprocessor.preprocessing(input.text).split()
-    label, scores = predict_label_from_tokens(tokens, category_words)
-    temp_ban = essential(ban_words_path,tokens)
-    dict_result = label # Prediction from Distinct Words
-    
-    # Condition for final label
+    dict_result, scores = predict_label_from_tokens(tokens, category_words)
+    temp_ban = essential(ban_words_path, tokens)  # Words matched with essential.txt
+
+    # Final label logic
     if model_result == dict_result:
         final_label = model_result
-    elif (model_result in ["Political","Gambling","Adult Content"]) and (dict_result not in ["Political","Gambling","Adult Content"]):
-        if temp_ban :final_label = model_result
-        else: final_label = dict_result
-    elif (model_result not in ["Political","Gambling","Adult Content"]) and (dict_result in ["Political","Gambling","Adult Content"]):
-        if temp_ban : final_label = dict_result
-        else: final_label = model_result    
+    elif (model_result in ["Political", "Gambling", "Adult Content"]) and (dict_result not in ["Political", "Gambling", "Adult Content"]):
+        final_label = model_result if temp_ban else dict_result
+    elif (model_result not in ["Political", "Gambling", "Adult Content"]) and (dict_result in ["Political", "Gambling", "Adult Content"]):
+        final_label = dict_result if temp_ban else model_result
     else:
         final_label = dict_result
 
-    status = "unsafe" if final_label in ["Political","Gambling","Adult Content"] else "safe"
+    political_words = [
+    "စကစ", "စစ်ကောင်စီ", "စစ်ခေါင်းဆောင်", "စစ်အုပ်စု", "AA", "ဒေါ်အောင်ဆန်းစုကြည်", "ဒေါ်အောင်ဆန်းဆုကြည်" 
+    "စစ်အာဏာရှင်", "စစ်အာဏာသိမ်း", "အာဏာသိမ်းခေါင်းဆောင်", "စစ်ခွေး", "အောင်ဆန်းစုကြည်", "အောင်ဆန်းဆုကြည်"
+    "NUG", "PDF", "အမျိုးသားညီညွတ်ရေးအစိုးရ", "နွေဦးတော်လှန်ရေး", "အမေစု",
+    "ပြည်သူ့ကာကွယ်ရေးအဖွဲ့", "၁၀၂၇စစ်ဆင်ရေး", "တိုင်းရင်းသားလက်နက်ကိုင်တပ်ဖွဲ့"
+    ]
+
+
+    # Final status logic
+    if final_label in ["Gambling", "Adult Content"]:
+        status = "unsafe"
+    elif final_label == "Political":
+        status = "unsafe" if any(word in tokens for word in political_words) else "safe"
+    else:
+        status = "safe"
+
     return {
         "predicted_label From Disticnt": dict_result,
         "predicted_label From Model": model_result,
         "final_label": final_label,
-        "status": status
+        "status": status,
+        # "temp": temp_ban
     }
