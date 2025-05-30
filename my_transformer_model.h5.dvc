@@ -1,5 +1,0 @@
-outs:
-- md5: fc2f4e18b91d5b3584a54ab1d3488ea8
-  size: 164572240
-  hash: md5
-  path: my_transformer_model.h5
