@@ -1,0 +1,172 @@
+# Transformer Encoder with attention mask support + MLflow
+import pickle
+import tensorflow as tf
+from tensorflow.keras.models import load_model, Sequential
+from tensorflow.keras.layers import Embedding, Layer, Dense, Dropout, MultiHeadAttention, LayerNormalization, Input, GlobalAveragePooling1D
+from tensorflow.keras import layers
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from preprocessor import MyanmarTextPreprocessor
+import numpy as np
+from fastapi import FastAPI
+from pydantic import BaseModel
+import pandas as pd
+import mlflow
+import mlflow.tensorflow
+
+# Set MLflow server URI
+mlflow.set_tracking_uri("http://172.236.148.198:5000")
+
+# Load category words from CSV
+def load_category_words_from_csv(csv_path):
+    df = pd.read_csv(csv_path)
+    category_words = {}
+    for col in df.columns:
+        words = df[col].dropna().astype(str).tolist()
+        category_words[col.strip()] = set(w.strip() for w in words if w.strip())
+    return category_words
+
+# Prediction logic
+def predict_label_from_tokens(tokens, category_words):
+    score_dict = {}
+    for label, keywords in category_words.items():
+        matches = set(tokens) & keywords
+        score_dict[label] = len(matches)
+    predicted_label = max(score_dict, key=score_dict.get)
+    return predicted_label, score_dict
+
+def essential(path, tokens):
+    with open(path, 'r', encoding="utf-8") as f:
+        temp_ban = set()
+        for line in f:
+            word = line.strip().lower()
+            if word:
+                temp_ban.add(word)
+        filtered_tokens = [token for token in tokens if token in temp_ban]
+    return filtered_tokens
+
+class TransformerEncoder(layers.Layer):
+    def __init__(self, embed_dim, heads, neurons, dropout_rate=0.5, **kwargs):
+        super(TransformerEncoder, self).__init__(**kwargs)
+        self.att = layers.MultiHeadAttention(num_heads=heads, key_dim=embed_dim)
+        self.ffn = Sequential([
+            layers.Dense(neurons, activation="relu"),
+            layers.Dense(embed_dim),
+        ])
+        self.layernorm1 = layers.LayerNormalization(epsilon=1e-6)
+        self.layernorm2 = layers.LayerNormalization(epsilon=1e-6)
+        self.dropout1 = layers.Dropout(dropout_rate)
+        self.dropout2 = layers.Dropout(dropout_rate)
+
+    def call(self, inputs, mask=None, training=False):
+        attn_output = self.att(inputs, inputs, attention_mask=mask)
+        attn_output = self.dropout1(attn_output, training=training)
+        out1 = self.layernorm1(inputs + attn_output)
+        ffn_output = self.ffn(out1)
+        ffn_output = self.dropout2(ffn_output, training=training)
+        return self.layernorm2(out1 + ffn_output)
+
+class TokenAndPositionEmbedding(layers.Layer):
+    def __init__(self, maxlen, vocab_size, embed_dim, **kwargs):
+        super(TokenAndPositionEmbedding, self).__init__(**kwargs)
+        self.token_emb = layers.Embedding(input_dim=vocab_size, output_dim=embed_dim)
+        self.pos_emb = layers.Embedding(input_dim=maxlen, output_dim=embed_dim)
+
+    def call(self, x):
+        maxlen = tf.shape(x)[-1]
+        positions = tf.range(start=0, limit=maxlen, delta=1)
+        positions = self.pos_emb(positions)
+        x = self.token_emb(x)
+        return x + positions
+
+map_label = {
+    'Social': 0,
+    'Entertainment': 1,
+    'Product&Service': 2,
+    'Business': 3,
+    'Sports': 4,
+    'Science&Technology': 5,
+    'Education': 6,
+    'Culture&History': 7,
+    'Health': 8,
+    'Environmental': 9,
+    'Political': 10,
+    'Gambling': 11,
+    'Adult Content': 12,
+}
+
+# Load model and tokenizer
+maxlen = 100
+model = load_model('my_transformer_model.h5', custom_objects={
+    'TransformerEncoder': TransformerEncoder,
+    'TokenAndPositionEmbedding': TokenAndPositionEmbedding,
+})
+with open('tokenizer.pkl', 'rb') as f:
+    tokenizer = pickle.load(f)
+
+dict_path = 'dict-words.txt'
+sw_path = 'sw.txt'
+ban_words_path = "essential.txt"
+category_words = load_category_words_from_csv('Distinct Words.csv')
+preprocessor = MyanmarTextPreprocessor(dict_path, sw_path)
+
+def safe_pad_sequences(texts, tokenizer, maxlen, vocab_limit):
+    sequences = tokenizer.texts_to_sequences(texts)
+    sequences = [[min(token, vocab_limit - 1) for token in seq] for seq in sequences]
+    return pad_sequences(sequences, maxlen=maxlen, padding='post', truncating='post')
+
+class TextInput(BaseModel):
+    text: str
+
+app = FastAPI()
+
+@app.post("/predict")
+def predict(input: TextInput):
+    with mlflow.start_run(run_name="predict_run"):
+        cleaned = preprocessor.preprocessing(input.text)
+        seq = tokenizer.texts_to_sequences([cleaned])
+        seq_pad = safe_pad_sequences([cleaned], tokenizer, maxlen, vocab_limit=40701)
+        pred_probs = model.predict(seq_pad)
+        pred_index = np.argmax(pred_probs, axis=1)[0]
+        inv_map_label = {v: k for k, v in map_label.items()}
+        model_result = inv_map_label[pred_index]
+
+        tokens = cleaned.split()
+        dict_result, scores = predict_label_from_tokens(tokens, category_words)
+        temp_ban = essential(ban_words_path, tokens)
+
+        if model_result == dict_result:
+            final_label = model_result
+        elif (model_result in ["Political", "Gambling", "Adult Content"]) and (dict_result not in ["Political", "Gambling", "Adult Content"]):
+            final_label = model_result if temp_ban else dict_result
+        elif (model_result not in ["Political", "Gambling", "Adult Content"]) and (dict_result in ["Political", "Gambling", "Adult Content"]):
+            final_label = dict_result if temp_ban else model_result
+        else:
+            final_label = dict_result
+
+        political_words = [
+            "စကစ", "စစ်ကောင်စီ", "စစ်ခေါင်းဆောင်", "စစ်အုပ်စု", "AA", "ဒေါ်အောင်ဆန်းစုကြည်", "ဒေါ်အောင်ဆန်းဆုကြည်",
+            "စစ်အာဏာရှင်", "စစ်အာဏာသိမ်း", "အာဏာသိမ်းခေါင်းဆောင်", "စစ်ခွေး", "အောင်ဆန်းစုကြည်", "အောင်ဆန်းဆုကြည်",
+            "NUG", "PDF", "အမျိုးသားညီညွတ်ရေးအစိုးရ", "နွေဦးတော်လှန်ရေး", "အမေစု", "CNO", "CNDF",
+            "ပြည်သူ့ကာကွယ်ရေးအဖွဲ့", "၁၀၂၇စစ်ဆင်ရေး", "တိုင်းရင်းသားလက်နက်ကိုင်တပ်ဖွဲ့"
+        ]
+
+        if final_label in ["Gambling", "Adult Content"]:
+            status = False
+        elif final_label == "Political":
+            status = False if any(word in tokens for word in political_words) else True
+        else:
+            status = True
+
+        mlflow.log_param("input_text", input.text)
+        mlflow.log_param("cleaned_text", cleaned)
+        mlflow.log_param("model_label", model_result)
+        mlflow.log_param("dict_label", dict_result)
+        mlflow.log_param("final_label", final_label)
+        mlflow.log_metric("status", int(status))
+
+        return {
+            "predicted_label From Disticnt": dict_result,
+            "predicted_label From Model": model_result,
+            "final_label": final_label,
+            "status": status,
+        }
