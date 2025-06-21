@@ -121,41 +121,130 @@ class TextInput(BaseModel):
 #--------------------------------------------------------------------------
 app = FastAPI()
 @app.post("/predict")
-
 def predict(input: TextInput):
     # Model part
     cleaned = preprocessor.preprocessing(input.text)
     seq = tokenizer.texts_to_sequences([cleaned])  # reuse the saved tokenizer
     seq_pad = safe_pad_sequences([cleaned], tokenizer, maxlen, vocab_limit=40701)
-    # seq_pad =pad_sequences(seq, maxlen=maxlen, padding='post', truncating='post')
     pred_probs = model.predict(seq_pad)
     pred_index = np.argmax(pred_probs, axis=1)[0]
     inv_map_label = {v: k for k, v in map_label.items()}
-    pred_label = inv_map_label[pred_index]
-    model_result = pred_label # Predittion from Model 
-    
+    model_result = inv_map_label[pred_index]  # Prediction from Model
+
     # Distinct Words part    
-    tokens = preprocessor.preprocessing(input.text).split()
-    label, scores = predict_label_from_tokens(tokens, category_words)
-    temp_ban = essential(ban_words_path,tokens)
-    dict_result = label # Prediction from Distinct Words
-    
-    # Condition for final label
+    tokens = preprocessor.preprocessing(input.text).lower()
+    tokens = tokens.split()
+    dict_result, scores = predict_label_from_tokens(tokens, category_words)
+    temp_ban = essential(ban_words_path, tokens)  # Words matched with essential.txt
+
+
+    # political_words = [
+    #     "စကစ", 
+    #     "စစ်ကောင်စီ", 
+    #     "စစ်ကောင်စီတပ်",
+    #     "စစ်ကောင်စည်", 
+    #     "စစ်ခေါင်းဆောင်", 
+    #     "စစ်အုပ်စု", 
+    #     "စစ်မှုထမ်း",
+    #     "AA", 
+    #     "ဒေါ်အောင်ဆန်းစုကြည်", 
+    #     "ဒေါ်အောင်ဆန်းဆုကြည်", 
+    #     "မင်းအောင်လှိုင်", 
+    #     "ပြည်သူ့ကာကွယ်ရေးတပ်ဖွဲ့",
+    #     "စစ်အာဏာရှင်",
+    #     "စစ်အာဏာရှင်စနစ်", 
+    #     "စစ်အာဏာသိမ်း", 
+    #     "အာဏာသိမ်းခေါင်းဆောင်", 
+    #     "စစ်ခွေး", 
+    #     "အောင်ဆန်းစုကြည်", 
+    #     "အောင်ဆန်းဆုကြည်", 
+    #     "မအလ", 
+    #     "ပကဖ", 
+    #     "BLY", 
+    #     "ပျောက်ကျားတပ်",
+    #     "NUG", 
+    #     "တော်လှန်ရေး",
+    #     "PDF", 
+    #     "အမျိုးသားညီညွတ်ရေးအစိုးရ", 
+    #     "နွေဦးတော်လှန်ရေး", 
+    #     "အမေစု", 
+    #     "CNO", 
+    #     "CNDF", 
+    #     "အန်ယူးဂျီ", 
+    #     "တိုင်းရင်းသားလက်နက်ကိုင်", 
+    #     "MNDAA", 
+    #     "KIA", 
+    #     "KNDF", 
+    #     "KNU", 
+    #     "TNLA", 
+    #     "PPNM"
+    #     "ပြည်သူ့ကာကွယ်ရေးအဖွဲ့", 
+    #     "အကြမ်းဖက်စစ်တပ်",
+    #     "၁၀၂၇စစ်ဆင်ရေး", 
+    #     "တိုင်းရင်းသားလက်နက်ကိုင်တပ်ဖွဲ့", 
+    #     "စစ်ခွေး", 
+    #     "အာဏာရူး",
+    #     "မင်းမေစပ", 
+    #     "ကချင်လွတ်မြောက်ရေးတပ်မတော်", 
+    #     "ကရင်နီ", 
+    #     "ကာကွယ်ရေးတပ်",
+    #     "ကရင်အမျိုးသားအစည်းအရုံး", 
+    #     "ချင်းအမျိုးသားတပ်မတော်", 
+    #     "တအောင်းအမျိုးသားလွတ်မြောက်ရေးတပ်မတော်", 
+    #     "အာရက္ခတပ်တော်", 
+    #     "မြန်မာအမျိုးသားဒီမိုကရက်တစ်", 
+    #     "မဟာမိတ်တပ်မတော်", 
+    #     "ညီနောင်မဟာမိတ်သုံးဖွဲ့",
+    #     "အိုးထိန်းတွင်းရွာ", 
+    #     "အိုးထိန်းတွင်းရွာလေကြောင်းတိုက်ခိုက်မှု", 
+    #     "ပဇီကြီးရွာလေကြောင်းတိုက်ခိုက်မှု", 
+    #     "စီပါရွာလူသတ်မှု",
+    #     "ဒီပဲယင်းလုပ်ကြံမှု",
+    #     "အေအေ"
+    # ]
+
+# Step 1: Check for political keywords using while loop
+    # status = True
+    # i = 0
+    # while i < len(tokens):
+    #     if tokens[i] in political_words:
+    #         status = False
+    #         break
+    #     i += 1
+
+    # Step 2: Decide final label
+    # final_label = dict_result  # make sure it's always defined
+
+    # if status:
     if model_result == dict_result:
         final_label = model_result
-    elif (model_result in ["Political","Gambling","Adult Content"]) and (dict_result not in ["Political","Gambling","Adult Content"]):
-        if temp_ban :final_label = model_result
-        else: final_label = dict_result
-    elif (model_result not in ["Political","Gambling","Adult Content"]) and (dict_result in ["Political","Gambling","Adult Content"]):
-        if temp_ban : final_label = dict_result
-        else: final_label = model_result    
+    elif (model_result in ["Political", "Gambling", "Adult Content"]) and (dict_result not in ["Political", "Gambling", "Adult Content"]):
+        final_label = model_result if temp_ban else dict_result
+    elif (model_result not in ["Political", "Gambling", "Adult Content"]) and (dict_result in ["Political", "Gambling", "Adult Content"]):
+        final_label = dict_result if temp_ban else model_result
     else:
         final_label = dict_result
+    # else:
+    #     final_label = "Political"
 
-    status = "unsafe" if final_label in ["Political","Gambling","Adult Content"] else "safe"
+    # Step 3: Update final status based on final label
+    # if final_label in ["Gambling", "Adult Content"]:
+    #     status = False
+    # elif final_label == "Political":
+    #     status = False if any(word in tokens for word in political_words) else True
+    # else:
+    if any(word in tokens for word in temp_ban):
+        status = False
+    else:
+        status = True
+
+
+    # Step 4: Return result
     return {
         "predicted_label From Disticnt": dict_result,
         "predicted_label From Model": model_result,
-        "final_label": final_label,
-        "status": status
+        "content_type": final_label,
+        "status": status,
+        "temp": temp_ban,
+        "token": tokens
     }
