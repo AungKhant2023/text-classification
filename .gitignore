@@ -6,4 +6,8 @@ dict-words.txt
 sw.txt
 essential.txt
 model_saveFile
-my_transformer_model_2.h5
+my_transformer_model.h5
+mlflow_env/
+__pycache__/
+*.pyc
+.DS_Store

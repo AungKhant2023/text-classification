@@ -97,11 +97,11 @@ map_label = {
 #--------------------------------------------------------------------------
 # Load the model and tokenizer
 maxlen = 100
-model = load_model('my_transformer_model.h5', custom_objects={
+model = load_model('finetune_transformer_ver1.2.keras', custom_objects={
     'TransformerEncoder': TransformerEncoder,
     'TokenAndPositionEmbedding': TokenAndPositionEmbedding,
 })
-with open('tokenizer.pkl', 'rb') as f:
+with open('finetune_tokenizer_ver1.2.pkl', 'rb') as f:
     tokenizer = pickle.load(f)
 
 dict_path = 'dict-words.txt'

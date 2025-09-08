@@ -1,0 +1,6 @@
+slightly update in code 
+main_2.py (converting font style)
+
+essential-21-8-2025.txt		update
+dict-output-v1-21-8-2025.txt 	update
+Distinct-Words-21-8-2025.csv	update
