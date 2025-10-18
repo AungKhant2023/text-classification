@@ -4,15 +4,17 @@ import re
 import os
 
 class MyanmarTextPreprocessor:
-    def __init__(self, dict_path: str, stop_path: str):
-        # Ensure the files exist
+    def __init__(self, dict_path: str, stop_path: str = None):
+        # Load dictionary
         if not os.path.exists(dict_path):
             raise FileNotFoundError(f"Dictionary file not found: {dict_path}")
-        if not os.path.exists(stop_path):
-            raise FileNotFoundError(f"Stopwords file not found: {stop_path}")
-
         self.dictionary = self.load_dictionary(dict_path)
-        self.stopwords = self.load_stopwords(stop_path)
+
+        # Load stopwords if path provided, else empty set
+        if stop_path and os.path.exists(stop_path):
+            self.stopwords = self.load_stopwords(stop_path)
+        else:
+            self.stopwords = set()
 
     def load_dictionary(self, dict_path):
         dictionary = set()
