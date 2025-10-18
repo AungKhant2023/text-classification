@@ -6,6 +6,7 @@ pickle-mixin
 mlflow
 # sentence-transformers
 # torch
+tf-keras
 scipy
 torch==2.2.0
 sentence-transformers==2.2.2
