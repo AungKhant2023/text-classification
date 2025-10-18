@@ -1,13 +1,24 @@
-streamlit
-numpy
-tensorflow
-scikit-learn
-pickle-mixin
-mlflow
+# streamlit
+# numpy
+# tensorflow
+# scikit-learn
+# pickle-mixin
+# mlflow
 # sentence-transformers
 # torch
-tf-keras
-scipy
-torch==2.2.0
-sentence-transformers==2.2.2
-transformers==4.31.0
+# tf-keras
+# scipy
+# torch==2.2.0
+# sentence-transformers==2.2.2
+# transformers==4.31.0
+streamlit==1.50.0
+numpy==2.3.4
+scikit-learn==1.7.2
+tensorflow==2.20.0
+tf-keras==2.20.1
+torch==2.5.1
+transformers==4.46.1
+sentence-transformers==3.1.1
+scipy==1.16.2
+mlflow==3.5.0
+pickle-mixin==1.0.2
