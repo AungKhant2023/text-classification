@@ -10,3 +10,5 @@ my_transformer_model.h5
 mlflow_env/
 *.pyc
 .DS_Store
+finetune_transformer_ver1.2.keras
+my_transformer_model.h5
