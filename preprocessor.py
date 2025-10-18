@@ -47,3 +47,23 @@ class MyanmarTextPreprocessor():
         merged_tokens = self.merge_with_dictionary(text)
         filtered_tokens = [token for token in merged_tokens if token not in self.stopwords]
         return ' '.join(filtered_tokens)
+
+
+    # def preprocessing(self, text: str):
+    # # Regex to capture Myanmar syllables + English words + numbers
+    #     pattern = re.compile(
+    #         r"[က-အ](?:[\u103B-\u103E\u103A\u102B-\u103E\u1037\u1038\u1039]*)"  # Myanmar syllable
+    #         r"|[a-zA-Z0-9]+",  # English/Numbers
+    #         re.UNICODE
+    #     )
+
+    #     text = pattern.findall(text)
+
+    #     # Merge tokens if they exist in dictionary
+    #     merged_tokens = self.merge_with_dictionary(text)
+
+    #     # Remove stopwords
+    #     filtered_tokens = [token for token in merged_tokens if token not in self.stopwords]
+
+    #     return ' '.join(filtered_tokens)
+

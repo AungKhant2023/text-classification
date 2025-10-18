@@ -8,6 +8,5 @@ essential.txt
 model_saveFile
 my_transformer_model.h5
 mlflow_env/
-__pycache__/
 *.pyc
 .DS_Store
