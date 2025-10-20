@@ -6,11 +6,12 @@ from tensorflow.keras.layers import Embedding, Layer, Dense, Dropout, MultiHeadA
 from tensorflow.keras import layers
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from preprocessor import MyanmarTextPreprocessor
+from hashtag import HashtagClassifier
 import numpy as np
 from fastapi import FastAPI
 from pydantic import BaseModel
 import pandas as pd
-
+import unicodedata
 # Load category words from CSV
 def load_category_words_from_csv(csv_path):
     df = pd.read_csv(csv_path)
@@ -97,17 +98,17 @@ map_label = {
 #--------------------------------------------------------------------------
 # Load the model and tokenizer
 maxlen = 100
-model = load_model('model_saveFile/my_transformer_model.h5', custom_objects={
+model = load_model('my_transformer_model.h5', custom_objects={
     'TransformerEncoder': TransformerEncoder,
     'TokenAndPositionEmbedding': TokenAndPositionEmbedding,
 })
-with open('model_saveFile/tokenizer.pkl', 'rb') as f:
+with open('tokenizer.pkl', 'rb') as f:
     tokenizer = pickle.load(f)
 
-dict_path = 'dict-words.txt'
+dict_path = 'dict-output-v2-4-9-2025.txt'
 sw_path = 'sw.txt'
-ban_words_path = "essential.txt"
-category_words = load_category_words_from_csv('Distinct Words.csv')
+ban_words_path = "ban-words-4-9-2025.txt"
+category_words = load_category_words_from_csv('Distinct-Words-21-8-2025.csv')
 preprocessor = MyanmarTextPreprocessor(dict_path, sw_path)
 
 def safe_pad_sequences(texts, tokenizer, maxlen, vocab_limit):
@@ -115,47 +116,79 @@ def safe_pad_sequences(texts, tokenizer, maxlen, vocab_limit):
     sequences = [[min(token, vocab_limit - 1) for token in seq] for seq in sequences]
     return pad_sequences(sequences, maxlen=maxlen, padding='post', truncating='post')
 
+
+
+def normalize_font_style(text):
+    # Convert fancy letters to standard ASCII equivalents
+    return unicodedata.normalize('NFKC', text)
+
+
 class TextInput(BaseModel):
     text: str
-    
+
+classifier = HashtagClassifier()
+
+# Request model for single or multiple texts
+class TextRequest(BaseModel):
+    texts: list[str]
+
+# Response model (optional, for docs clarity)
+class TextResponse(BaseModel):
+    text: str
+    category: str
+    score: float
 #--------------------------------------------------------------------------
 app = FastAPI()
 @app.post("/predict")
 
+def classify_text(request: TextRequest):
+    """
+    Classify a list of input texts and return their predicted categories.
+    """
+    results = classifier.classify_batch(request.texts)
+    return results
+
+
 def predict(input: TextInput):
+    #Hashtag
+    hash_results = classifier.classify(input.text) 
+    if not hash_results:
+        hash_results = "None"
+       
     # Model part
-    cleaned = preprocessor.preprocessing(input.text)
+    text = normalize_font_style(input.text)   # <-- use .text here
+    text = text.lower()
+    cleaned = preprocessor.preprocessing(text)
     seq = tokenizer.texts_to_sequences([cleaned])  # reuse the saved tokenizer
     seq_pad = safe_pad_sequences([cleaned], tokenizer, maxlen, vocab_limit=40701)
-    # seq_pad =pad_sequences(seq, maxlen=maxlen, padding='post', truncating='post')
     pred_probs = model.predict(seq_pad)
     pred_index = np.argmax(pred_probs, axis=1)[0]
     inv_map_label = {v: k for k, v in map_label.items()}
-    pred_label = inv_map_label[pred_index]
-    model_result = pred_label # Predittion from Model 
-    
+    model_result = inv_map_label[pred_index]  # Prediction from Model
+
     # Distinct Words part    
-    tokens = preprocessor.preprocessing(input.text).split()
-    label, scores = predict_label_from_tokens(tokens, category_words)
-    temp_ban = essential(ban_words_path,tokens)
-    dict_result = label # Prediction from Distinct Words
-    
-    # Condition for final label
+    tokens = preprocessor.preprocessing(text).lower().split()
+    dict_result, scores = predict_label_from_tokens(tokens, category_words)
+    temp_ban = essential(ban_words_path, tokens)  # Words matched with essential.txt
+
     if model_result == dict_result:
         final_label = model_result
-    elif (model_result in ["Political","Gambling","Adult Content"]) and (dict_result not in ["Political","Gambling","Adult Content"]):
-        if temp_ban :final_label = model_result
-        else: final_label = dict_result
-    elif (model_result not in ["Political","Gambling","Adult Content"]) and (dict_result in ["Political","Gambling","Adult Content"]):
-        if temp_ban : final_label = dict_result
-        else: final_label = model_result    
+    elif (model_result in ["Political", "Gambling", "Adult Content"]) and (dict_result not in ["Political", "Gambling", "Adult Content"]):
+        final_label = model_result if temp_ban else dict_result
+    elif (model_result not in ["Political", "Gambling", "Adult Content"]) and (dict_result in ["Political", "Gambling", "Adult Content"]):
+        final_label = dict_result if temp_ban else model_result
     else:
         final_label = dict_result
 
-    status = "unsafe" if final_label in ["Political","Gambling","Adult Content"] else "safe"
+    status = not any(word in tokens for word in temp_ban)
+
     return {
+        "hashtag": hash_results,
         "predicted_label From Disticnt": dict_result,
         "predicted_label From Model": model_result,
-        "final_label": final_label,
-        "status": status
+        "content_type": final_label,
+        "status": status,
+        "temp": temp_ban,
+        "token": tokens,
+        
     }
