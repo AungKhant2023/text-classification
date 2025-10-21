@@ -228,3 +228,4 @@ if st.button("Analyze"):
         st.write("Final label:", final_label)
         st.write("Banned words found:", temp_ban)
         st.write("Status:", status)
+        st.write("Token", tokens)    
