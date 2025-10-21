@@ -1,19 +1,24 @@
+# -------------------- CONFIGURE ENVIRONMENT --------------------
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-
 import logging
-import tensorflow as tf
-tf.get_logger().setLevel('ERROR')
 
+# Force TensorFlow to CPU only
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+
+# Suppress TF and absl logs
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # 0=all, 1=info, 2=warning, 3=error
+logging.getLogger('tensorflow').setLevel(logging.ERROR)
+
+# Silence absl warnings
+from absl import logging as absl_logging
+absl_logging.set_verbosity(absl_logging.ERROR)
+
+# -------------------- IMPORTS --------------------
 import streamlit as st
-# -------------------------------------------------------------
-# Combined Transformer + SentenceTransformer FastAPI App (Updated)
-# -------------------------------------------------------------
 import pickle
 import tensorflow as tf
 from tensorflow.keras.models import load_model, Sequential
-from tensorflow.keras.layers import Layer, Dense, Dropout, MultiHeadAttention, LayerNormalization
+from tensorflow.keras.layers import Dense, Dropout, MultiHeadAttention, LayerNormalization, Layer
 from tensorflow.keras import layers
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from preprocessor import MyanmarTextPreprocessor
@@ -25,9 +30,7 @@ import unicodedata
 from sentence_transformers import SentenceTransformer, util
 import torch
 
-# -------------------------------------------------------------
-# Utility: Load category words from CSV
-# -------------------------------------------------------------
+# -------------------- UTILITY FUNCTIONS --------------------
 def load_category_words_from_csv(csv_path):
     df = pd.read_csv(csv_path)
     category_words = {}
@@ -36,9 +39,6 @@ def load_category_words_from_csv(csv_path):
         category_words[col.strip()] = set(w.strip() for w in words if w.strip())
     return category_words
 
-# -------------------------------------------------------------
-# Utility: Predict label from dictionary tokens
-# -------------------------------------------------------------
 def predict_label_from_tokens(tokens, category_words):
     score_dict = {}
     for label, keywords in category_words.items():
@@ -47,18 +47,13 @@ def predict_label_from_tokens(tokens, category_words):
     predicted_label = max(score_dict, key=score_dict.get)
     return predicted_label, score_dict
 
-# -------------------------------------------------------------
-# Utility: Check essential words
-# -------------------------------------------------------------
 def essential(path, tokens):
     with open(path, 'r', encoding="utf-8") as f:
         temp_ban = set(line.strip().lower() for line in f if line.strip())
     filtered_tokens = [token for token in tokens if token in temp_ban]
     return filtered_tokens
 
-# -------------------------------------------------------------
-# Custom TransformerEncoder Layer
-# -------------------------------------------------------------
+# -------------------- CUSTOM LAYERS --------------------
 class TransformerEncoder(layers.Layer):
     def __init__(self, embed_dim, heads, neurons, dropout_rate=0.5, **kwargs):
         super(TransformerEncoder, self).__init__(**kwargs)
@@ -80,9 +75,6 @@ class TransformerEncoder(layers.Layer):
         ffn_output = self.dropout2(ffn_output, training=training)
         return self.layernorm2(out1 + ffn_output)
 
-# -------------------------------------------------------------
-# Token + Position Embedding
-# -------------------------------------------------------------
 class TokenAndPositionEmbedding(layers.Layer):
     def __init__(self, maxlen, vocab_size, embed_dim, **kwargs):
         super(TokenAndPositionEmbedding, self).__init__(**kwargs)
@@ -96,28 +88,14 @@ class TokenAndPositionEmbedding(layers.Layer):
         x = self.token_emb(x)
         return x + positions
 
-# -------------------------------------------------------------
-# Label mapping
-# -------------------------------------------------------------
+# -------------------- LABEL MAPPING --------------------
 map_label = {
-    'Social': 0,
-    'Entertainment': 1,
-    'Product&Service': 2,
-    'Business': 3,
-    'Sports': 4,
-    'Science&Technology': 5,
-    'Education': 6,
-    'Culture&History': 7,
-    'Health': 8,
-    'Environmental': 9,
-    'Political': 10,
-    'Gambling': 11,
-    'Adult Content': 12,
+    'Social': 0, 'Entertainment': 1, 'Product&Service': 2, 'Business': 3, 'Sports': 4,
+    'Science&Technology': 5, 'Education': 6, 'Culture&History': 7, 'Health': 8,
+    'Environmental': 9, 'Political': 10, 'Gambling': 11, 'Adult Content': 12,
 }
 
-# -------------------------------------------------------------
-# Load resources
-# -------------------------------------------------------------
+# -------------------- LOAD RESOURCES --------------------
 maxlen = 100
 model = load_model('my_transformer_model.h5', custom_objects={
     'TransformerEncoder': TransformerEncoder,
@@ -133,25 +111,17 @@ ban_words_path = "ban-words-4-9-2025.txt"
 category_words = load_category_words_from_csv('Distinct-Words-21-8-2025.csv')
 preprocessor = MyanmarTextPreprocessor(dict_path, sw_path)
 
-# -------------------------------------------------------------
-# Text normalization
-# -------------------------------------------------------------
+# -------------------- HELPER FUNCTIONS --------------------
 def normalize_font_style(text):
     return unicodedata.normalize('NFKC', text)
 
-# -------------------------------------------------------------
-# Pad sequences safely
-# -------------------------------------------------------------
 def safe_pad_sequences(texts, tokenizer, maxlen, vocab_limit):
     sequences = tokenizer.texts_to_sequences(texts)
     sequences = [[min(token, vocab_limit - 1) for token in seq] for seq in sequences]
     return pad_sequences(sequences, maxlen=maxlen, padding='post', truncating='post')
 
-# -------------------------------------------------------------
-# SentenceTransformer setup
-# -------------------------------------------------------------
+# -------------------- SENTENCE TRANSFORMER --------------------
 st_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
-
 st_categories = [
     'Social', 'Entertainment', 'Product', 'Service', 'Business', 'Sports',
     'Science', 'Technology', 'History', 'Education', 'Culture',
@@ -166,9 +136,7 @@ def classify_text_semantically(text):
     best_idx = torch.argmax(sims).item()
     return st_categories[best_idx], sims[best_idx].item()
 
-# -------------------------------------------------------------
-# FastAPI app
-# -------------------------------------------------------------
+# -------------------- FASTAPI APP --------------------
 app = FastAPI()
 
 class TextInput(BaseModel):
@@ -178,10 +146,9 @@ class TextInput(BaseModel):
 def predict(input: TextInput):
     text = normalize_font_style(input.text).lower()
 
-    # ✅ Step 1: Hashtag classification (raw, no stopword removal)
+    # Hashtags
     raw_text = text
     hashtags = [word for word in raw_text.split() if word.startswith("#")]
-
     hashtag_results = []
     if hashtags:
         for tag in hashtags:
@@ -192,8 +159,8 @@ def predict(input: TextInput):
                 "similarity_score": round(score, 4)
             })
 
-    # ✅ Step 2: Continue normal preprocessing and classification
-    cleaned = preprocessor.preprocessing(text)  # includes stopword removal
+    # Preprocessing + Transformer model
+    cleaned = preprocessor.preprocessing(text)
     seq_pad = safe_pad_sequences([cleaned], tokenizer, maxlen, vocab_limit=40701)
     pred_probs = model.predict(seq_pad)
     pred_index = np.argmax(pred_probs, axis=1)[0]
@@ -222,8 +189,6 @@ def predict(input: TextInput):
         "hashtag_results": hashtag_results if hashtags else "No hashtags found",
         "predicted_label_model": model_result,
         "predicted_label_distinct": dict_result,
-        # "predicted_label_semantic": semantic_label,
-        # "semantic_similarity": similarity_score,
         "final_label": final_label,
         "status": status,
         "banned_words_found": temp_ban,
