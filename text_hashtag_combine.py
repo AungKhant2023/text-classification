@@ -6,6 +6,7 @@ import streamlit as st
 import pickle
 import unicodedata
 import numpy as np
+import tensorflow as tf
 import pandas as pd
 from tensorflow.keras.models import load_model, Sequential
 from tensorflow.keras.layers import Dense, Dropout, MultiHeadAttention, LayerNormalization
@@ -44,7 +45,7 @@ class TransformerEncoder(layers.Layer):
 
 class TokenAndPositionEmbedding(layers.Layer):
     def __init__(self, maxlen, vocab_size, embed_dim, **kwargs):
-        super(TokenAndPositionEmbedding, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         self.token_emb = layers.Embedding(input_dim=vocab_size, output_dim=embed_dim)
         self.pos_emb = layers.Embedding(input_dim=maxlen, output_dim=embed_dim)
 
@@ -54,6 +55,11 @@ class TokenAndPositionEmbedding(layers.Layer):
         positions = self.pos_emb(positions)
         x = self.token_emb(x)
         return x + positions
+
+    def compute_output_shape(self, input_shape):
+        return input_shape + (self.token_emb.output_dim,)
+
+
 
 # -------------------- LOAD RESOURCES --------------------
 # Paths
