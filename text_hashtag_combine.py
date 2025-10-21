@@ -1,67 +1,24 @@
-# -------------------- CONFIGURE ENVIRONMENT --------------------
+# -------------------- IMPORTS --------------------
 import os
 import sys
 import logging
-
-# -------------------- REDIRECT LOW-LEVEL LOGS --------------------
-# Temporarily suppress stdout/stderr during TF import
-sys.stdout = open(os.devnull, "w")
-sys.stderr = open(os.devnull, "w")
-
-# Force TensorFlow to CPU only
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Hide INFO, WARNING, ERROR logs
-
-# -------------------- IMPORTS --------------------
-import tensorflow as tf
-from absl import logging as absl_logging
-
-# Re-enable stdout/stderr
-sys.stdout = sys.__stdout__
-sys.stderr = sys.__stderr__
-
-# Suppress absl logs and TensorFlow internal logs
-absl_logging.set_verbosity(absl_logging.ERROR)
-logging.getLogger('tensorflow').setLevel(logging.ERROR)
-
-# Other imports
 import streamlit as st
 import pickle
+import unicodedata
+import numpy as np
+import pandas as pd
 from tensorflow.keras.models import load_model, Sequential
-from tensorflow.keras.layers import Dense, Dropout, MultiHeadAttention, LayerNormalization, Layer
+from tensorflow.keras.layers import Dense, Dropout, MultiHeadAttention, LayerNormalization
 from tensorflow.keras import layers
 from tensorflow.keras.preprocessing.sequence import pad_sequences
-from preprocessor import MyanmarTextPreprocessor
-import numpy as np
-from fastapi import FastAPI
-from pydantic import BaseModel
-import pandas as pd
-import unicodedata
 from sentence_transformers import SentenceTransformer, util
-import torch
+from preprocessor import MyanmarTextPreprocessor
 
-# -------------------- UTILITY FUNCTIONS --------------------
-def load_category_words_from_csv(csv_path):
-    df = pd.read_csv(csv_path)
-    category_words = {}
-    for col in df.columns:
-        words = df[col].dropna().astype(str).tolist()
-        category_words[col.strip()] = set(w.strip() for w in words if w.strip())
-    return category_words
-
-def predict_label_from_tokens(tokens, category_words):
-    score_dict = {}
-    for label, keywords in category_words.items():
-        matches = set(tokens) & keywords
-        score_dict[label] = len(matches)
-    predicted_label = max(score_dict, key=score_dict.get)
-    return predicted_label, score_dict
-
-def essential(path, tokens):
-    with open(path, 'r', encoding="utf-8") as f:
-        temp_ban = set(line.strip().lower() for line in f if line.strip())
-    filtered_tokens = [token for token in tokens if token in temp_ban]
-    return filtered_tokens
+# -------------------- ENVIRONMENT CONFIG --------------------
+# Suppress TensorFlow logs
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+logging.getLogger('tensorflow').setLevel(logging.ERROR)
 
 # -------------------- CUSTOM LAYERS --------------------
 class TransformerEncoder(layers.Layer):
@@ -69,13 +26,13 @@ class TransformerEncoder(layers.Layer):
         super(TransformerEncoder, self).__init__(**kwargs)
         self.att = layers.MultiHeadAttention(num_heads=heads, key_dim=embed_dim)
         self.ffn = Sequential([
-            layers.Dense(neurons, activation="relu"),
-            layers.Dense(embed_dim),
+            Dense(neurons, activation="relu"),
+            Dense(embed_dim),
         ])
-        self.layernorm1 = layers.LayerNormalization(epsilon=1e-6)
-        self.layernorm2 = layers.LayerNormalization(epsilon=1e-6)
-        self.dropout1 = layers.Dropout(dropout_rate)
-        self.dropout2 = layers.Dropout(dropout_rate)
+        self.layernorm1 = LayerNormalization(epsilon=1e-6)
+        self.layernorm2 = LayerNormalization(epsilon=1e-6)
+        self.dropout1 = Dropout(dropout_rate)
+        self.dropout2 = Dropout(dropout_rate)
 
     def call(self, inputs, mask=None, training=False):
         attn_output = self.att(inputs, inputs, attention_mask=mask)
@@ -98,28 +55,56 @@ class TokenAndPositionEmbedding(layers.Layer):
         x = self.token_emb(x)
         return x + positions
 
-# -------------------- LABEL MAPPING --------------------
+# -------------------- LOAD RESOURCES --------------------
+# Paths
+MODEL_PATH = 'my_transformer_model.h5'
+TOKENIZER_PATH = 'tokenizer.pkl'
+DICT_PATH = 'dict-output-v2-4-9-2025.txt'
+SW_PATH = 'sw.txt'
+BAN_WORDS_PATH = "ban-words-4-9-2025.txt"
+CATEGORY_CSV = 'Distinct-Words-21-8-2025.csv'
+
+# Label mapping
 map_label = {
     'Social': 0, 'Entertainment': 1, 'Product&Service': 2, 'Business': 3, 'Sports': 4,
     'Science&Technology': 5, 'Education': 6, 'Culture&History': 7, 'Health': 8,
     'Environmental': 9, 'Political': 10, 'Gambling': 11, 'Adult Content': 12,
 }
 
-# -------------------- LOAD RESOURCES --------------------
 maxlen = 100
-model = load_model('my_transformer_model.h5', custom_objects={
-    'TransformerEncoder': TransformerEncoder,
-    'TokenAndPositionEmbedding': TokenAndPositionEmbedding,
-})
+vocab_limit = 40701
 
-with open('tokenizer.pkl', 'rb') as f:
-    tokenizer = pickle.load(f)
+# Load model safely
+try:
+    model = load_model(MODEL_PATH, custom_objects={
+        'TransformerEncoder': TransformerEncoder,
+        'TokenAndPositionEmbedding': TokenAndPositionEmbedding,
+    })
+except Exception as e:
+    st.error(f"Error loading model: {e}")
+    model = None
 
-dict_path = 'dict-output-v2-4-9-2025.txt'
-sw_path = 'sw.txt'
-ban_words_path = "ban-words-4-9-2025.txt"
-category_words = load_category_words_from_csv('Distinct-Words-21-8-2025.csv')
-preprocessor = MyanmarTextPreprocessor(dict_path, sw_path)
+# Load tokenizer safely
+try:
+    with open(TOKENIZER_PATH, 'rb') as f:
+        tokenizer = pickle.load(f)
+except Exception as e:
+    st.error(f"Error loading tokenizer: {e}")
+    tokenizer = None
+
+# Preprocessor
+preprocessor = MyanmarTextPreprocessor(DICT_PATH, SW_PATH)
+
+# Load category words
+def load_category_words_from_csv(csv_path):
+    df = pd.read_csv(csv_path)
+    category_words = {}
+    for col in df.columns:
+        words = df[col].dropna().astype(str).tolist()
+        category_words[col.strip()] = set(w.strip() for w in words if w.strip())
+    return category_words
+
+category_words = load_category_words_from_csv(CATEGORY_CSV)
 
 # -------------------- HELPER FUNCTIONS --------------------
 def normalize_font_style(text):
@@ -130,37 +115,58 @@ def safe_pad_sequences(texts, tokenizer, maxlen, vocab_limit):
     sequences = [[min(token, vocab_limit - 1) for token in seq] for seq in sequences]
     return pad_sequences(sequences, maxlen=maxlen, padding='post', truncating='post')
 
+def predict_label_from_tokens(tokens, category_words):
+    score_dict = {}
+    for label, keywords in category_words.items():
+        matches = set(tokens) & keywords
+        score_dict[label] = len(matches)
+    predicted_label = max(score_dict, key=score_dict.get)
+    return predicted_label, score_dict
+
+def essential(path, tokens):
+    with open(path, 'r', encoding="utf-8") as f:
+        temp_ban = set(line.strip().lower() for line in f if line.strip())
+    filtered_tokens = [token for token in tokens if token in temp_ban]
+    return filtered_tokens
+
 # -------------------- SENTENCE TRANSFORMER --------------------
-st_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
+try:
+    st_model = SentenceTransformer("./paraphrase-multilingual-MiniLM-L12-v2")
+except Exception as e:
+    st.error(f"SentenceTransformer load failed: {e}")
+    st_model = None
+
 st_categories = [
     'Social', 'Entertainment', 'Product', 'Service', 'Business', 'Sports',
     'Science', 'Technology', 'History', 'Education', 'Culture',
     'Health', 'Environmental'
 ]
-st_embeddings = st_model.encode(st_categories, convert_to_tensor=True)
+
+if st_model:
+    st_embeddings = st_model.encode(st_categories, convert_to_tensor=True)
 
 def classify_text_semantically(text):
+    if not st_model:
+        return "Unknown", 0.0
     text = text.lstrip("#").lower()
     text_emb = st_model.encode(text, convert_to_tensor=True)
     sims = util.cos_sim(text_emb, st_embeddings)[0]
     best_idx = torch.argmax(sims).item()
     return st_categories[best_idx], sims[best_idx].item()
 
-# -------------------- FASTAPI APP --------------------
-app = FastAPI()
+# -------------------- STREAMLIT UI --------------------
+st.title("Myanmar Text Classification & Hashtag Analyzer")
+input_text = st.text_area("Enter your text here:")
 
-class TextInput(BaseModel):
-    text: str
+if st.button("Analyze"):
+    if not input_text.strip():
+        st.warning("Please enter some text.")
+    else:
+        text = normalize_font_style(input_text).lower()
 
-@app.post("/predict")
-def predict(input: TextInput):
-    text = normalize_font_style(input.text).lower()
-
-    # Hashtags
-    raw_text = text
-    hashtags = [word for word in raw_text.split() if word.startswith("#")]
-    hashtag_results = []
-    if hashtags:
+        # Hashtags
+        hashtags = [word for word in text.split() if word.startswith("#")]
+        hashtag_results = []
         for tag in hashtags:
             label, score = classify_text_semantically(tag)
             hashtag_results.append({
@@ -169,38 +175,49 @@ def predict(input: TextInput):
                 "similarity_score": round(score, 4)
             })
 
-    # Preprocessing + Transformer model
-    cleaned = preprocessor.preprocessing(text)
-    seq_pad = safe_pad_sequences([cleaned], tokenizer, maxlen, vocab_limit=40701)
-    pred_probs = model.predict(seq_pad)
-    pred_index = np.argmax(pred_probs, axis=1)[0]
-    inv_map_label = {v: k for k, v in map_label.items()}
-    model_result = inv_map_label[pred_index]
+        # Preprocessing + Transformer model
+        cleaned = preprocessor.preprocessing(text)
+        if not cleaned:
+            cleaned = text
+        if tokenizer and model:
+            seq_pad = safe_pad_sequences([cleaned], tokenizer, maxlen, vocab_limit=vocab_limit)
+            try:
+                pred_probs = model.predict(seq_pad)
+                pred_index = np.argmax(pred_probs, axis=1)[0]
+                inv_map_label = {v: k for k, v in map_label.items()}
+                model_result = inv_map_label[pred_index]
+            except Exception as e:
+                st.error(f"Prediction failed: {e}")
+                model_result = "Unknown"
+        else:
+            model_result = "Unknown"
 
-    tokens = preprocessor.preprocessing(text).lower().split()
-    dict_result, scores = predict_label_from_tokens(tokens, category_words)
-    temp_ban = essential(ban_words_path, tokens)
+        # Dictionary-based prediction
+        tokens = preprocessor.preprocessing(text).lower().split()
+        dict_result, scores = predict_label_from_tokens(tokens, category_words)
+        temp_ban = essential(BAN_WORDS_PATH, tokens)
 
-    semantic_label, similarity_score = classify_text_semantically(text)
+        # Semantic label
+        semantic_label, similarity_score = classify_text_semantically(text)
 
-    # Combine results
-    if model_result == dict_result:
-        final_label = model_result
-    elif (model_result in ["Political", "Gambling", "Adult Content"]) and (dict_result not in ["Political", "Gambling", "Adult Content"]):
-        final_label = model_result if temp_ban else dict_result
-    elif (model_result not in ["Political", "Gambling", "Adult Content"]) and (dict_result in ["Political", "Gambling", "Adult Content"]):
-        final_label = dict_result if temp_ban else model_result
-    else:
-        final_label = dict_result
+        # Combine results
+        if model_result == dict_result:
+            final_label = model_result
+        elif (model_result in ["Political", "Gambling", "Adult Content"]) and (dict_result not in ["Political", "Gambling", "Adult Content"]):
+            final_label = model_result if temp_ban else dict_result
+        elif (model_result not in ["Political", "Gambling", "Adult Content"]) and (dict_result in ["Political", "Gambling", "Adult Content"]):
+            final_label = dict_result if temp_ban else model_result
+        else:
+            final_label = dict_result
 
-    status = not any(word in tokens for word in temp_ban)
+        status = not any(word in tokens for word in temp_ban)
 
-    return {
-        "hashtag_results": hashtag_results if hashtags else "No hashtags found",
-        "predicted_label_model": model_result,
-        "predicted_label_distinct": dict_result,
-        "final_label": final_label,
-        "status": status,
-        "banned_words_found": temp_ban,
-        "tokens": tokens
-    }
+        # Display results
+        st.subheader("Results")
+        st.write("Tokens:", tokens)
+        st.write("Hashtags analysis:", hashtag_results if hashtags else "No hashtags found")
+        st.write("Model predicted label:", model_result)
+        st.write("Dictionary predicted label:", dict_result)
+        st.write("Final label:", final_label)
+        st.write("Banned words found:", temp_ban)
+        st.write("Status:", status)
