@@ -137,7 +137,7 @@ def essential(path, tokens):
 
 # -------------------- SENTENCE TRANSFORMER --------------------
 try:
-    st_model = SentenceTransformer("./paraphrase-multilingual-MiniLM-L12-v2")
+    st_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
 except Exception as e:
     st.error(f"SentenceTransformer load failed: {e}")
     st_model = None
