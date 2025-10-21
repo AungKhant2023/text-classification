@@ -1,22 +1,32 @@
 # -------------------- CONFIGURE ENVIRONMENT --------------------
 import os
+import sys
 import logging
+
+# -------------------- REDIRECT LOW-LEVEL LOGS --------------------
+# Temporarily suppress stdout/stderr during TF import
+sys.stdout = open(os.devnull, "w")
+sys.stderr = open(os.devnull, "w")
 
 # Force TensorFlow to CPU only
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-
-# Suppress TF and absl logs
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # 0=all, 1=info, 2=warning, 3=error
-logging.getLogger('tensorflow').setLevel(logging.ERROR)
-
-# Silence absl warnings
-from absl import logging as absl_logging
-absl_logging.set_verbosity(absl_logging.ERROR)
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Hide INFO, WARNING, ERROR logs
 
 # -------------------- IMPORTS --------------------
+import tensorflow as tf
+from absl import logging as absl_logging
+
+# Re-enable stdout/stderr
+sys.stdout = sys.__stdout__
+sys.stderr = sys.__stderr__
+
+# Suppress absl logs and TensorFlow internal logs
+absl_logging.set_verbosity(absl_logging.ERROR)
+logging.getLogger('tensorflow').setLevel(logging.ERROR)
+
+# Other imports
 import streamlit as st
 import pickle
-import tensorflow as tf
 from tensorflow.keras.models import load_model, Sequential
 from tensorflow.keras.layers import Dense, Dropout, MultiHeadAttention, LayerNormalization, Layer
 from tensorflow.keras import layers
