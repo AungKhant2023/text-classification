@@ -22,3 +22,9 @@ sentence-transformers==3.1.1
 scipy==1.16.2
 mlflow==3.5.0
 pickle-mixin==1.0.2
+streamlit
+numpy
+tensorflow
+scikit-learn
+pickle-mixin
+tf-keras
