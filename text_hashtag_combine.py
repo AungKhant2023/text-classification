@@ -221,10 +221,10 @@ if st.button("Analyze"):
 
         # Display results
         st.subheader("Results")
-        st.write("Tokens:", tokens)
         st.write("Hashtags analysis:", hashtag_results if hashtags else "No hashtags found")
         st.write("Model predicted label:", model_result)
         st.write("Dictionary predicted label:", dict_result)
         st.write("Final label:", final_label)
         st.write("Banned words found:", temp_ban)
         st.write("Status:", status)
+        st.write("Tokens:", tokens)
