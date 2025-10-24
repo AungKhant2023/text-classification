@@ -15,9 +15,10 @@ from tensorflow.keras import layers
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from sentence_transformers import SentenceTransformer, util
 from preprocessor import MyanmarTextPreprocessor
+from io import BytesIO
+from openpyxl import Workbook
 
 # -------------------- ENVIRONMENT CONFIG --------------------
-# Suppress TensorFlow logs
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 logging.getLogger('tensorflow').setLevel(logging.ERROR)
@@ -44,6 +45,7 @@ class TransformerEncoder(layers.Layer):
         ffn_output = self.dropout2(ffn_output, training=training)
         return self.layernorm2(out1 + ffn_output)
 
+
 class TokenAndPositionEmbedding(layers.Layer):
     def __init__(self, maxlen, vocab_size, embed_dim, **kwargs):
         super().__init__(**kwargs)
@@ -61,17 +63,14 @@ class TokenAndPositionEmbedding(layers.Layer):
         return input_shape + (self.token_emb.output_dim,)
 
 
-
 # -------------------- LOAD RESOURCES --------------------
-# Paths
 MODEL_PATH = 'my_transformer_model.h5'
 TOKENIZER_PATH = 'tokenizer.pkl'
 DICT_PATH = 'dict-output-v2-4-9-2025.txt'
 SW_PATH = 'sw.txt'
-BAN_WORDS_PATH = "ban-words-4-9-2025.txt"
+BAN_WORDS_PATH = 'ban-words-4-9-2025.txt'
 CATEGORY_CSV = 'Distinct-Words-21-8-2025.csv'
 
-# Label mapping
 map_label = {
     'Social': 0, 'Entertainment': 1, 'Product&Service': 2, 'Business': 3, 'Sports': 4,
     'Science&Technology': 5, 'Education': 6, 'Culture&History': 7, 'Health': 8,
@@ -81,7 +80,6 @@ map_label = {
 maxlen = 100
 vocab_limit = 40701
 
-# Load model safely
 try:
     model = load_model(MODEL_PATH, custom_objects={
         'TransformerEncoder': TransformerEncoder,
@@ -91,7 +89,6 @@ except Exception as e:
     st.error(f"Error loading model: {e}")
     model = None
 
-# Load tokenizer safely
 try:
     with open(TOKENIZER_PATH, 'rb') as f:
         tokenizer = pickle.load(f)
@@ -99,10 +96,8 @@ except Exception as e:
     st.error(f"Error loading tokenizer: {e}")
     tokenizer = None
 
-# Preprocessor
 preprocessor = MyanmarTextPreprocessor(DICT_PATH, SW_PATH)
 
-# Load category words
 def load_category_words_from_csv(csv_path):
     df = pd.read_csv(csv_path)
     category_words = {}
@@ -113,7 +108,7 @@ def load_category_words_from_csv(csv_path):
 
 category_words = load_category_words_from_csv(CATEGORY_CSV)
 
-# -------------------- HELPER FUNCTIONS --------------------
+# -------------------- HELPERS --------------------
 def normalize_font_style(text):
     return unicodedata.normalize('NFKC', text)
 
@@ -171,18 +166,53 @@ if st.button("Analyze"):
     else:
         text = normalize_font_style(input_text).lower()
 
-        # Hashtags
+        # -------------------- HASHTAG SECTION --------------------
         hashtags = [word for word in text.split() if word.startswith("#")]
         hashtag_results = []
-        for tag in hashtags:
-            label, score = classify_text_semantically(tag)
-            hashtag_results.append({
-                "hashtag": tag,
-                "semantic_label": label,
-                "similarity_score": round(score, 4)
-            })
+        category_dict = {}
 
-        # Preprocessing + Transformer model
+        if hashtags:
+            for tag in hashtags:
+                label, score = classify_text_semantically(tag)
+                hashtag_results.append({
+                    "hashtag": tag,
+                    "semantic_label": label,
+                    "similarity_score": round(score, 4)
+                })
+                if label not in category_dict:
+                    category_dict[label] = []
+                category_dict[label].append(tag)
+
+            # Convert to DataFrame
+            max_len = max(len(v) for v in category_dict.values())
+            for k in category_dict:
+                while len(category_dict[k]) < max_len:
+                    category_dict[k].append("")
+            hashtag_df = pd.DataFrame(category_dict)
+
+            st.subheader("📊 Categorized Hashtags")
+            st.dataframe(hashtag_df)
+
+            # Download Excel
+            def to_excel(df):
+                output = BytesIO()
+                writer = pd.ExcelWriter(output, engine='openpyxl')
+                df.to_excel(writer, index=False, sheet_name='Hashtags')
+                writer.close()
+                processed_data = output.getvalue()
+                return processed_data
+
+            excel_data = to_excel(hashtag_df)
+            st.download_button(
+                label="📥 Download Categorized Hashtags (.xlsx)",
+                data=excel_data,
+                file_name="categorized_hashtags.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        else:
+            st.info("No hashtags found in the input text.")
+
+        # -------------------- MODEL PREDICTION --------------------
         cleaned = preprocessor.preprocessing(text)
         if not cleaned:
             cleaned = text
@@ -199,15 +229,11 @@ if st.button("Analyze"):
         else:
             model_result = "Unknown"
 
-        # Dictionary-based prediction
         tokens = preprocessor.preprocessing(text).lower().split()
         dict_result, scores = predict_label_from_tokens(tokens, category_words)
         temp_ban = essential(BAN_WORDS_PATH, tokens)
-
-        # Semantic label
         semantic_label, similarity_score = classify_text_semantically(text)
 
-        # Combine results
         if model_result == dict_result:
             final_label = model_result
         elif (model_result in ["Political", "Gambling", "Adult Content"]) and (dict_result not in ["Political", "Gambling", "Adult Content"]):
@@ -219,9 +245,9 @@ if st.button("Analyze"):
 
         status = not any(word in tokens for word in temp_ban)
 
-        # Display results
-        st.subheader("Results")
-        st.write("Hashtags analysis:", hashtag_results if hashtags else "No hashtags found")
+        # -------------------- DISPLAY RESULTS --------------------
+        st.subheader("🔍 Results Summary")
+        st.write("Hashtags:", hashtag_results if hashtags else "No hashtags found")
         st.write("Model predicted label:", model_result)
         st.write("Dictionary predicted label:", dict_result)
         st.write("Final label:", final_label)
