@@ -28,3 +28,4 @@ tensorflow
 scikit-learn
 pickle-mixin
 tf-keras
+openpyxl
